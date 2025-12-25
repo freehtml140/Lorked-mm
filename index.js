@@ -278,3 +278,5 @@ export function getBotStatus() {
     username: client.user?.tag
   };
 }
+
+client.login(process.env.DISCORD_BOT_TOKEN)
