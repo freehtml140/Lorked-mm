@@ -67,7 +67,25 @@ client.on(Events.MessageCreate, async (message) => {
     } else {
       targetedUserId = null;
       try {
-        await message.reply("Targeted user cleared. Pinging @everyone.");
+        await .startsWith('.purge')) {
+    const amount = parseInt(message.content.split(' ')[1]);
+    if (isNaN(amount) || amount <= 0) {
+      return message.reply('Please specify a valid number of messages to purge (e.g., .purge 50).').catch(() => {});
+    }
+
+    const deleteAmount = Math.min(amount, 100); // Discord bulkDelete limit is 100
+    try {
+      const deleted = await message.channel.bulkDelete(deleteAmount, true);
+      message.channel.send(`Successfully purged ${deleted.size} messages.`).then(msg => {
+        setTimeout(() => msg.delete().catch(() => {}), 3000);
+      }).catch(() => {});
+    } catch (err) {
+      message.reply('Failed to purge messages. They might be older than 14 days.').catch(() => {});
+    }
+    return;
+  }
+
+  if (message.contentmessage.reply("Targeted user cleared. Pinging @everyone.");
       } catch (e) {}
     }
     return;
